@@ -1,0 +1,15 @@
+program Constants {
+  int k;
+  void WriteK() {
+    write k;
+  }
+  const int i := 2;
+
+  void Main() {
+    const int j := 4;
+    write i;
+    write j;
+    k := 6;
+    WriteK();
+  }
+}
