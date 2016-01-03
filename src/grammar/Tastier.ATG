@@ -621,7 +621,7 @@ Stat<out StatementType statType>(.  TastierType type;
                                     program.Add(new Instruction("", "Sub"));
                                     // copy result so it's there for next iteration
                                     program.Add(new Instruction(loopConditionLabel, "Nop"));
-                                    program.Add(new Instruction("", "Load 0 1"));
+                                    program.Add(new Instruction("", "Load 0 " + openScopes.Peek().Count(s => true)));
                                     program.Add(new Instruction("", "Const 1"));
                                     program.Add(new Instruction("", "Neq"));
                                     // jump to end if false
