@@ -1,0 +1,11 @@
+program Relops {
+  int i;
+
+  void Main() {
+    i := 2;
+    if( i = 2 ) {
+      write i;
+    }
+  }
+}
+
