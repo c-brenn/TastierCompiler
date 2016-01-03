@@ -1,0 +1,8 @@
+program MultiWrite {
+  void Main() {
+    int i, j;
+    i := 2;
+    j := 3;
+    write i, j;
+  }
+}
