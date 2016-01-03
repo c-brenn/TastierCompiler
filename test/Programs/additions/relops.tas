@@ -6,6 +6,15 @@ program Relops {
     if( i = 2 ) {
       write i;
     }
+    if( i != 1 ) {
+      write i;
+    }
+    if( i >= 2 ) {
+      write i;
+    }
+    if( i <= 3 ) {
+      write i;
+    }
   }
 }
 
