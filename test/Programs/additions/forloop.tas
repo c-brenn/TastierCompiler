@@ -1,8 +1,11 @@
 program ForLoop
   def main
     int i;
+    int j;
     for(read i; read i; i != -1) do
-      write i;
+      for(j := 0; j := j + 1; j < i) do
+        write j;
+      end
       write i;
     end
   end

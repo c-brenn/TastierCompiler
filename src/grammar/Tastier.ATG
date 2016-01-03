@@ -602,10 +602,39 @@ Stat<out StatementType statType>(.  TastierType type;
                                     program.Add(new Instruction("", "FJmp " + openLabels.Peek())); // jump to the loop end label if condition is false
                                 .)
  "do"
- StatList                       (. program.Add(new Instruction("", "Jmp " + loopStartLabel));
+ StatList                       (.  program.Add(new Instruction("", "Jmp " + loopStartLabel));
                                     program.Add(new Instruction(openLabels.Pop(), "Nop")); // put the loop end label here
                                 .)
  "end"
+| number                        (.
+                                    int n = Convert.ToInt32(t.val);
+                                    Console.WriteLine($"Number: {n}");
+                                    program.Add(new Instruction("", "Const " + n));
+                                    // skip decrement on first iteration
+                                    string loopConditionLabel = generateLabel();
+                                    program.Add(new Instruction("", "Jmp " + loopConditionLabel));
+                                    string loopStartLabel = generateLabel();
+                                    openLabels.Push(generateLabel());
+                                    program.Add(new Instruction(loopStartLabel, "Nop"));
+                                    // decrement counter
+                                    program.Add(new Instruction("", "Const 1"));
+                                    program.Add(new Instruction("", "Sub"));
+                                    // copy result so it's there for next iteration
+                                    program.Add(new Instruction(loopConditionLabel, "Nop"));
+                                    program.Add(new Instruction("", "Load 0 1"));
+                                    program.Add(new Instruction("", "Const 1"));
+                                    program.Add(new Instruction("", "Neq"));
+                                    // jump to end if false
+                                    program.Add(new Instruction("", "FJmp " + openLabels.Peek())); // jump to the loop end label if condition is false
+                                .)
+  "times"
+  "do"
+ StatList                       (.  program.Add(new Instruction("", "Jmp " + loopStartLabel));
+                                    program.Add(new Instruction(openLabels.Pop(), "Nop")); // put the loop end label here
+                                .)
+  "end"
+                                (.
+                                .)
 
 | "read"
   Ident<out name> ';'           (.
@@ -667,7 +696,7 @@ Stat<out StatementType statType>(.  TastierType type;
  StatList                      (. StatementType statType = StatementType.Other;
                                .)
  =
-  (Stat<out statType> | ConstDecl | VarDecl<true>)
+  Stat<out statType>
   [ StatList ]
  .
 /*------------------------------------------------------------------------*/
