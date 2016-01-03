@@ -1,0 +1,9 @@
+program ForLoop
+  def main
+    int i;
+    for(read i; read i; i != -1) do
+      write i;
+      write i;
+    end
+  end
+end

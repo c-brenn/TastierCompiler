@@ -1,23 +1,21 @@
-// This is a test program which can be compiled by the TastierCompiler.
-// It reads a sequence of numbers from the input file and computes, for each
-// number, the sum of all integers up to that number
-
-program Test {
+program Test
   int i;
 
-  void SumUp() {
+  def sum_up
     int sum;
     sum := 0;
-    while (i > 0) { sum := sum + i; i := i - 1; }
+    while (i > 0) do
+      sum := sum + i; i := i - 1;
+    end
     write sum;
-  }
+  end
 
-  void Main() {
+  def main
     read i;
-    while (i > 0) {
-      SumUp();
+    while (i > 0) do
+      sum_up;
       read i;
-    }
-  }
-}
+    end
+  end
+end
 

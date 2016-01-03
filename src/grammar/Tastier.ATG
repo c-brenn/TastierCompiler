@@ -16,6 +16,16 @@ COMPILER Tastier
     Const
   };
 
+  enum StatementType : int  { // types of statement
+    Read,
+    Write,
+    Assignment,
+    IfElse,
+    Loop,
+    ProcCall,
+    Other
+  }
+
 /*
   You'll notice some type aliases, such as the one just below, are commented
   out. This is because C# only allows using-alias-directives outside of a
@@ -255,9 +265,10 @@ letter = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz".
   cr  = '\r'.
   lf  = '\n'.
   tab = '\t'.
+  underscore = '_'.
 
 TOKENS
-  ident  = letter {letter | digit}.
+  ident  = letter {letter | digit | underscore}.
   number = digit {digit}.
 
 COMMENTS FROM "/*" TO "*/" NESTED
@@ -377,15 +388,19 @@ MulOp<out Instruction inst>
 
 /*------------------------------------------------------------------------*/
 
-ProcDecl                        (.  string name; string label; Scope currentScope = openScopes.Peek(); int enterInstLocation = 0; bool external = false; .)
-= "void"
+ProcDecl                        (.  string name, label;
+                                    Scope currentScope = openScopes.Peek();
+                                    int enterInstLocation = 0;
+                                    bool external = false;
+                                    StatementType statType = StatementType.Other;
+                                .)
+= "def"
   Ident<out name>               (.
                                     currentScope.Push(new Symbol(name, (int)TastierKind.Proc, (int)TastierType.Undefined, openScopes.Count, -1));
                                     openScopes.Push(new Scope());
                                     currentScope = openScopes.Peek();
                                 .)
-  '(' ')'
-  '{'                           (.
+  ['('')']                      (.
                                     program.Add(new Instruction("", "Enter 0"));
                                     enterInstLocation = program.Count - 1;
                                     label = generateProcedureName(name);
@@ -404,7 +419,8 @@ ProcDecl                        (.  string name; string label; Scope currentScop
                                     */
                                 .)
 
-  { ConstDecl | VarDecl<external> | Stat |  (.
+  { ConstDecl | VarDecl<external> | Stat<out statType> |
+                                (.
                                     openLabels.Push(generateLabel());
                                     program.Add(new Instruction("", "Jmp " + openLabels.Peek()));
                                     /*
@@ -417,7 +433,7 @@ ProcDecl                        (.  string name; string label; Scope currentScop
                                 .)
     ProcDecl                    (. program.Add(new Instruction(openLabels.Pop(), "Nop")); .)
   }
-  '}'                           (.
+  "end"                         (.
                                     program.Add(new Instruction("", "Leave"));
                                     program.Add(new Instruction("", "Ret"));
                                     openScopes.Pop();
@@ -455,7 +471,12 @@ SimExpr<out TastierType type>   (.  TastierType type1; Instruction inst; .)
 
 /*------------------------------------------------------------------------*/
 
-Stat                            (.  TastierType type; string name; Symbol sym; bool external = false; bool isExternal = false; .)
+Stat<out StatementType statType>(.  TastierType type;
+                                    string name;
+                                    Symbol sym;
+                                    bool isExternal = false;
+                                    statType = StatementType.Other;
+                                .)
 
 = Ident<out name>               (.
                                     sym = lookup(openScopes, name);
@@ -468,6 +489,7 @@ Stat                            (.  TastierType type; string name; Symbol sym; b
                                     }
                                 .)
   ( ":="                        (.
+                                    statType = StatementType.Assignment;
                                     if((TastierKind)sym.Item2 == TastierKind.Const) {
                                       SemErr($"cannot reassign constant - constant name: {sym.Item1}");
                                     } else if ((TastierKind)sym.Item2 != TastierKind.Var) {
@@ -492,7 +514,8 @@ Stat                            (.  TastierType type; string name; Symbol sym; b
                                       program.Add(new Instruction("", "Sto " + lexicalLevelDifference + " " + sym.Item5));
                                     }
                                 .)
-  | '(' ')' ';'                 (.
+  | ['(' ')'] ';'                 (.
+                                    statType = StatementType.ProcCall;
                                     if ((TastierKind)sym.Item2 != TastierKind.Proc) {
                                       SemErr("object is not a procedure");
                                     }
@@ -506,13 +529,14 @@ Stat                            (.  TastierType type; string name; Symbol sym; b
 
 | "if"
   '(' Expr<out type> ')'        (.
+                                    statType = StatementType.IfElse;
                                     if ((TastierType)type != TastierType.Boolean) {
                                       SemErr("boolean type expected");
                                     }
                                     openLabels.Push(generateLabel());
                                     program.Add(new Instruction("", "FJmp " + openLabels.Peek()));
                                 .)
-      Stat                      (.
+      Stat<out statType>        (.
                                     Instruction startOfElse = new Instruction(openLabels.Pop(), "Nop");
                                     /*
                                        If we got into the "if", we need to
@@ -524,10 +548,12 @@ Stat                            (.  TastierType type; string name; Symbol sym; b
                                     program.Add(startOfElse);
                                 .)
       [ "else"
-        Stat
+        Stat<out statType>
       ]                         (.  program.Add(new Instruction(openLabels.Pop(), "Nop")); .)
 
-| "while"                       (.  string loopStartLabel = generateLabel();
+| "while"                       (.
+                                    statType = StatementType.Loop;
+                                    string loopStartLabel = generateLabel();
                                     openLabels.Push(generateLabel()); //second label is for the loop end
                                     program.Add(new Instruction(loopStartLabel, "Nop"));
                                 .)
@@ -537,12 +563,53 @@ Stat                            (.  TastierType type; string name; Symbol sym; b
                                     }
                                     program.Add(new Instruction("", "FJmp " + openLabels.Peek())); // jump to the loop end label if condition is false
                                 .)
-      Stat                      (.  program.Add(new Instruction("", "Jmp " + loopStartLabel));
+  "do"
+  StatList                      (.  program.Add(new Instruction("", "Jmp " + loopStartLabel));
                                     program.Add(new Instruction(openLabels.Pop(), "Nop")); // put the loop end label here
                                 .)
+  "end"
+| "for"                         (.  statType = StatementType.Loop;
+                                    StatementType sttype;
+                                .)
+'('
+ (Stat<out sttype>              (.
+                                    if(sttype != StatementType.Assignment && sttype != StatementType.Read) {
+                                      SemErr($"Invalid for loop action. Expected Assignment or Read got {sttype}.");
+                                    }
+                                .)
+ |';')
+                                (.
+                                    string loopConditionLabel = generateLabel();
+                                    program.Add(new Instruction("", "Jmp " + loopConditionLabel));
+                                .)
+                                (.  string loopStartLabel = generateLabel();
+                                    openLabels.Push(generateLabel());
+                                    program.Add(new Instruction(loopStartLabel, "Nop"));
+                                .)
+ (Stat<out sttype>              (.
+                                   if(sttype != StatementType.Assignment && sttype != StatementType.Read) {
+                                      SemErr($"Invalid for loop action. Expected Assignment or Read got {sttype}.");
+                                    }
+                                .)
+ |';')
+                                (.
+                                    program.Add(new Instruction(loopConditionLabel, "Nop"));
+                                .)
+ Expr<out type> ')'(.
+                                    if ((TastierType)type != TastierType.Boolean) {
+                                      SemErr("boolean type expected");
+                                    }
+                                    program.Add(new Instruction("", "FJmp " + openLabels.Peek())); // jump to the loop end label if condition is false
+                                .)
+ "do"
+ StatList                       (. program.Add(new Instruction("", "Jmp " + loopStartLabel));
+                                    program.Add(new Instruction(openLabels.Pop(), "Nop")); // put the loop end label here
+                                .)
+ "end"
 
 | "read"
   Ident<out name> ';'           (.
+                                    statType = StatementType.Read;
                                     sym = lookup(openScopes, name);
                                     if (sym == null) {
                                       sym = _lookup(externalDeclarations, name);
@@ -577,6 +644,7 @@ Stat                            (.  TastierType type; string name; Symbol sym; b
 
 | "write"
   Expr<out type>                (.
+                                    statType = StatementType.Write;
                                     if (type != TastierType.Integer) {
                                       SemErr("integer type expected");
                                     }
@@ -593,8 +661,15 @@ Stat                            (.  TastierType type; string name; Symbol sym; b
  }
  ';'
 
-| '{' { Stat | ConstDecl | VarDecl<external> } '}' .
+ .
 
+/*------------------------------------------------------------------------*/
+ StatList                      (. StatementType statType = StatementType.Other;
+                               .)
+ =
+  (Stat<out statType> | ConstDecl | VarDecl<true>)
+  [ StatList ]
+ .
 /*------------------------------------------------------------------------*/
 
 Tastier                         (.  string name; bool external = false; .)
@@ -602,7 +677,6 @@ Tastier                         (.  string name; bool external = false; .)
   Ident<out name>               (.
                                     openScopes.Push(new Scope());
                                 .)
-  '{'
   { ConstDecl | VarDecl<external> |
     /* Jump over procedure declarations so constants can be defined */
     /* in the global scope */
@@ -612,7 +686,7 @@ Tastier                         (.  string name; bool external = false; .)
                                 .)
     ProcDecl                    (.  program.Add(new Instruction(openLabels.Pop(), "Nop")); .)
   | ExternDecl }
-  '}'                           (.
+  "end"                         (.
                                     if (openScopes.Peek().Count == 0) {
                                       Warn("Warning: Program " + name + " is empty ");
                                     }
