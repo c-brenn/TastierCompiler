@@ -2,9 +2,11 @@ program Times
   def main
     int i;
     i := 0;
-    10 times do
-      i := i + 1;
-      write i;
+    5 times do
+      2 times do
+        i := i + 1;
+        write i;
+      end
     end
   end
 end

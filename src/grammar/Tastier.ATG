@@ -291,8 +291,12 @@ AddOp<out Instruction inst>
 
 /*------------------------------------------------------------------------*/
 
-Expr<out TastierType type>      (.  TastierType type1; Instruction inst; .)
-= SimExpr<out type>
+Expr<out TastierType type>      (.  TastierType type1;
+                                    type = TastierType.Undefined;
+                                    Instruction inst;
+                                .)
+= (
+  SimExpr<out type>
   [ RelOp<out inst>
     SimExpr<out type1>          (.
                                     if (type != type1) {
@@ -304,7 +308,15 @@ Expr<out TastierType type>      (.  TastierType type1; Instruction inst; .)
                                     }
                                 .)
     [ TernaryExpr<out type> ]
-  ].
+  ]
+  | "malloc" Expr<out type1>    (.
+                                    if(type1 != TastierType.Integer) {
+                                      SemErr($"Invalid argument to malloc. Expected Integer, got {type1}");
+                                    }
+                                    type = TastierType.Pointer;
+                                    program.Add(new Instruction("", "Malloc"));
+                                .)
+  ).
 
 /*------------------------------------------------------------------------*/
 TernaryExpr<out TastierType type> (. TastierType type1; .)
@@ -328,7 +340,10 @@ TernaryExpr<out TastierType type> (. TastierType type1; .)
 /*------------------------------------------------------------------------*/
 
 Factor<out TastierType type>    (.  int n; Symbol sym; string name; .)
-=                               (.  type = TastierType.Undefined; .)
+=                               (.  type = TastierType.Undefined;
+                                    int pointerDepth = 0;
+                                    bool pointerAccess = false;
+                                .)
   ( Ident<out name>             (.
                                     bool isExternal = false; //CS3071 students can ignore external declarations, since they only deal with compilation of single files.
                                     sym = lookup(openScopes, name);
@@ -340,7 +355,39 @@ Factor<out TastierType type>    (.  int n; Symbol sym; string name; .)
                                     if (sym == null) {
                                       SemErr("reference to undefined variable " + name);
                                     }
-                                    else {
+                                .)
+{
+    '['                         (.  if((TastierType)sym.Item3 != TastierType.Pointer) SemErr("Expected Pointer, got {type}");
+                                    // load base address if this is the first index
+                                    if(pointerDepth == 0) {
+                                      if(sym.Item4 == 0) {
+                                        program.Add(new Instruction("", "LoadG " + (sym.Item5 + 3)));
+                                      } else {
+                                        int lexicalLevelDifference = Math.Abs(openScopes.Count - sym.Item4)-1;
+                                        program.Add(new Instruction("", "Load " + lexicalLevelDifference + " " + sym.Item5));
+                                      }
+                                      } else {
+                                        program.Add(new Instruction("", "LoadTop"));
+                                      }
+                                .)
+     Expr<out type>
+    ']'                         (.
+                                    if(type != TastierType.Integer) {
+                                      SemErr($"Invalid pointer index. Expected Integer, got {type}");
+                                    }
+                                    if(pointerDepth >= sym.Item6) SemErr("Pointer access too deep");
+                                    pointerAccess = true;
+                                    pointerDepth++;
+                                    // add the offset to the address
+                                    program.Add(new Instruction("", "CalcAddress"));
+                                .)
+
+  }
+                                (.
+                                    if (pointerAccess) {
+                                      type = (pointerDepth < sym.Item6)? TastierType.Pointer : (TastierType)sym.Item7;
+                                      program.Add(new Instruction("", "LoadTop"));
+                                    } else {
                                       type = (TastierType)sym.Item3;
                                       if ((TastierKind)sym.Item2 != TastierKind.Proc) {
                                         if (sym.Item4 == 0) {
@@ -479,6 +526,8 @@ Stat<out StatementType statType>(.  TastierType type;
                                     Symbol sym;
                                     bool isExternal = false;
                                     statType = StatementType.Other;
+                                    bool pointerAccess = false;
+                                    int pointerDepth = 0;
                                 .)
 
 = Ident<out name>               (.
@@ -491,6 +540,33 @@ Stat<out StatementType statType>(.  TastierType type;
                                       SemErr("reference to undefined variable " + name);
                                     }
                                 .)
+  {
+    '['                         (.  if((TastierType)sym.Item3 != TastierType.Pointer) SemErr("Expected Pointer, got {type}");
+                                    // load base address if this is the first index
+                                    if(pointerDepth == 0) {
+                                      if(sym.Item4 == 0) {
+                                        program.Add(new Instruction("", "LoadG " + (sym.Item5 + 3)));
+                                      } else {
+                                        int lexicalLevelDifference = Math.Abs(openScopes.Count - sym.Item4)-1;
+                                        program.Add(new Instruction("", "Load " + lexicalLevelDifference + " " + sym.Item5));
+                                      }
+                                      } else {
+                                        program.Add(new Instruction("", "LoadTop"));
+                                      }
+                                .)
+     Expr<out type>
+    ']'                         (.
+                                    if(type != TastierType.Integer) {
+                                      SemErr($"Invalid pointer index. Expected Integer, got {type}");
+                                    }
+                                    if(pointerDepth >= sym.Item6) SemErr("Pointer access too deep");
+                                    pointerAccess = true;
+                                    pointerDepth++;
+                                    // add the offset to the address
+                                    program.Add(new Instruction("", "CalcAddress"));
+                                .)
+
+  }
   ( ":="                        (.
                                     statType = StatementType.Assignment;
                                     if((TastierKind)sym.Item2 == TastierKind.Const) {
@@ -501,20 +577,27 @@ Stat<out StatementType statType>(.  TastierType type;
                                 .)
     Expr<out type> ';'
                                 (.
-                                    if (type != (TastierType)sym.Item3) {
-                                      SemErr("incompatible types");
-                                    }
-                                    if (sym.Item4 == 0) {
-                                      if (isExternal) {
-                                        program.Add(new Instruction("", "StoG " + sym.Item1));
-                                        // if the symbol is external, we also store it by name. The linker will resolve the name to an address.
-                                      } else {
-                                        program.Add(new Instruction("", "StoG " + (sym.Item5+3)));
+                                    if (pointerAccess) {
+                                      TastierType expectedType = (pointerDepth < sym.Item6)? TastierType.Pointer : (TastierType)sym.Item7;
+                                      if(type != expectedType) SemErr($"Incompatible types. Expected {expectedType} got {type}");
+                                      program.Add(new Instruction("", "StoreTop"));
+
+                                    } else {
+                                      if (type != (TastierType)sym.Item3) {
+                                        SemErr("incompatible types");
                                       }
-                                    }
-                                    else {
-                                      int lexicalLevelDifference = Math.Abs(openScopes.Count - sym.Item4)-1;
-                                      program.Add(new Instruction("", "Sto " + lexicalLevelDifference + " " + sym.Item5));
+                                      if (sym.Item4 == 0) {
+                                        if (isExternal) {
+                                          program.Add(new Instruction("", "StoG " + sym.Item1));
+                                          // if the symbol is external, we also store it by name. The linker will resolve the name to an address.
+                                        } else {
+                                          program.Add(new Instruction("", "StoG " + (sym.Item5+3)));
+                                        }
+                                      }
+                                      else {
+                                        int lexicalLevelDifference = Math.Abs(openScopes.Count - sym.Item4)-1;
+                                        program.Add(new Instruction("", "Sto " + lexicalLevelDifference + " " + sym.Item5));
+                                      }
                                     }
                                 .)
   | ['(' ')'] ';'                 (.
@@ -611,8 +694,11 @@ Stat<out StatementType statType>(.  TastierType type;
  "end"
 | number                        (.
                                     int n = Convert.ToInt32(t.val);
-                                    Console.WriteLine($"Number: {n}");
                                     program.Add(new Instruction("", "Const " + n));
+                                    Scope currentScope = openScopes.Peek();
+                                    Symbol coverSymbol = new Symbol("", 0, 0, openScopes.Count-1, currentScope.Count(s => s.Item2 != (int)TastierKind.Proc), 0, 0);
+                                    currentScope.Push(coverSymbol);
+                                    program.Add(new Instruction("", "Sto 0 " + coverSymbol.Item5));
                                     // skip decrement on first iteration
                                     string loopConditionLabel = generateLabel();
                                     program.Add(new Instruction("", "Jmp " + loopConditionLabel));
@@ -620,12 +706,15 @@ Stat<out StatementType statType>(.  TastierType type;
                                     openLabels.Push(generateLabel());
                                     program.Add(new Instruction(loopStartLabel, "Nop"));
                                     // decrement counter
+                                    program.Add(new Instruction("", "Load 0 " + coverSymbol.Item5));
                                     program.Add(new Instruction("", "Const 1"));
                                     program.Add(new Instruction("", "Sub"));
                                     // copy result so it's there for next iteration
+                                    program.Add(new Instruction("", "Sto 0 " + coverSymbol.Item5));
+                                    // check the loop condition
                                     program.Add(new Instruction(loopConditionLabel, "Nop"));
-                                    program.Add(new Instruction("", "Load 0 " + openScopes.Peek().Count(s => true)));
-                                    program.Add(new Instruction("", "Const 1"));
+                                    program.Add(new Instruction("", "Load 0 " + coverSymbol.Item5));
+                                    program.Add(new Instruction("", "Const 0"));
                                     program.Add(new Instruction("", "Neq"));
                                     // jump to end if false
                                     program.Add(new Instruction("", "FJmp " + openLabels.Peek())); // jump to the loop end label if condition is false
@@ -831,7 +920,6 @@ VarDecl<bool external>          (.
                                                         pointerDepth,
                                                         (int) pointerBaseType));
                                     }
-                                    Console.WriteLine($"name: {name}, Type: {type}, pointerDepth: {pointerDepth}, baseType: {pointerBaseType}");
                                 .)
   { ',' Ident<out name>         (.
                                     if (external) {

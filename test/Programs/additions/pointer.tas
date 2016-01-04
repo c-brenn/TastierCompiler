@@ -1,8 +1,16 @@
 program Pointer
-  int *** i, k;
+  int * i;
   def main
+    int hey;
+    i := malloc 10;
     int j;
-    j := 0;
-    write j;
+    for(j := 0; j := j + 1; j < 10) do
+      i[j] := j;
+      write i[j];
+    end
+    int ** wow;
+    wow := malloc 1;
+    wow[0] := i;
+    write wow[0][0], wow[0][2], wow[0][9];
   end
 end
