@@ -7,7 +7,8 @@ COMPILER Tastier
   enum TastierType : int {   // types for variables
     Undefined,
     Integer,
-    Boolean
+    Boolean,
+    Pointer
   };
 
   enum TastierKind : int {  // kinds of symbol
@@ -37,7 +38,7 @@ COMPILER Tastier
   Parser.frame, but they're documented in this file, with the rest.
 */
 
-  //using Symbol = System.Tuple<string, int, int, int, int>;
+  //using Symbol = System.Tuple<string, int, int, int, int, int>;
 
 /*
   A Symbol is a name with a type and a kind. The first int in the
@@ -85,6 +86,8 @@ COMPILER Tastier
     * Symbol.Item4 -> stack frame pointer
     * Symbol.Item5 -> variable's address in the stack frame pointed to by
                       Item4, -1 if procedure
+    * Symbol.Item6 -> level of pointeriness (number of *)
+    * Symbol.Item7 -> pointer base type (char * -> char, int ** -> int, etc)
 */
 
   class Scope : Stack<Symbol> {}
@@ -396,7 +399,7 @@ ProcDecl                        (.  string name, label;
                                 .)
 = "def"
   Ident<out name>               (.
-                                    currentScope.Push(new Symbol(name, (int)TastierKind.Proc, (int)TastierType.Undefined, openScopes.Count, -1));
+                                    currentScope.Push(new Symbol(name, (int)TastierKind.Proc, (int)TastierType.Undefined, openScopes.Count, -1, 0, 0));
                                     openScopes.Push(new Scope());
                                     currentScope = openScopes.Peek();
                                 .)
@@ -778,7 +781,7 @@ ConstDecl                       (.
   = "const"
     Type<out type>
     Ident<out name>             (.
-                                   sym = new Symbol(name, (int)TastierKind.Const, (int)type, openScopes.Count-1, currentScope.Count(s => s.Item2 != (int)TastierKind.Proc));
+                                   sym = new Symbol(name, (int)TastierKind.Const, (int)type, openScopes.Count-1, currentScope.Count(s => s.Item2 != (int)TastierKind.Proc), 0, 0);
                                    currentScope.Push(sym);
                                 .)
 
@@ -802,22 +805,47 @@ ConstDecl                       (.
 /*------------------------------------------------------------------------*/
 
 VarDecl<bool external>          (.
-                                    string name; TastierType type; Scope currentScope = openScopes.Peek();
+                                    string name;
+                                    TastierType type;
+                                    TastierType pointerBaseType = TastierType.Undefined;
+                                    Scope currentScope = openScopes.Peek();
+                                    int pointerDepth = 0;
                                 .)
 = Type<out type>
+  { '*'                         (.  pointerDepth++;
+                                    if(pointerDepth == 1){
+                                      pointerBaseType = type;
+                                      type = TastierType.Pointer;
+                                    }
+                                .)
+  }
   Ident<out name>               (.
                                     if (external) {
-                                      externalDeclarations.Push(new Symbol(name, (int)TastierKind.Var, (int)type, 0, 0));
+                                      externalDeclarations.Push(new Symbol(name, (int)TastierKind.Var, (int)type, 0, 0, 0, 0));
                                     } else {
-                                      currentScope.Push(new Symbol(name, (int)TastierKind.Var, (int)type, openScopes.Count-1, currentScope.Count(s => s.Item2 != (int)TastierKind.Proc)));
+                                      currentScope.Push(new Symbol(name,
+                                                        (int)TastierKind.Var,
+                                                        (int)type,
+                                                        openScopes.Count-1,
+                                                        currentScope.Count(s => s.Item2 != (int)TastierKind.Proc),
+                                                        pointerDepth,
+                                                        (int) pointerBaseType));
                                     }
+                                    Console.WriteLine($"name: {name}, Type: {type}, pointerDepth: {pointerDepth}, baseType: {pointerBaseType}");
                                 .)
   { ',' Ident<out name>         (.
                                     if (external) {
-                                      externalDeclarations.Push(new Symbol(name, (int)TastierKind.Var, (int)type, 0, 0));
+                                      externalDeclarations.Push(new Symbol(name, (int)TastierKind.Var, (int)type, 0, 0, 0, 0));
                                     } else {
-                                      currentScope.Push(new Symbol(name, (int)TastierKind.Var, (int)type, openScopes.Count-1, currentScope.Count(s => s.Item2 != (int)TastierKind.Proc)));
+                                      currentScope.Push(new Symbol(name,
+                                                        (int)TastierKind.Var,
+                                                        (int)type,
+                                                        openScopes.Count-1,
+                                                        currentScope.Count(s => s.Item2 != (int)TastierKind.Proc),
+                                                        pointerDepth,
+                                                        (int) pointerBaseType));
                                     }
+                                    Console.WriteLine($"name: {name}, Type: {type}, pointerDepth: {pointerDepth}, baseType: {pointerBaseType}");
                                 .)
   } ';'.
 
@@ -825,7 +853,7 @@ ExternDecl                      (.  string name; bool external = true; Scope cur
 = "external"
   ( VarDecl<external>
   | "procedure" Ident<out name> ';'
-                                (.  externalDeclarations.Push(new Symbol(name, (int)TastierKind.Proc, (int)TastierType.Undefined, 1, -1)); .)
+                                (.  externalDeclarations.Push(new Symbol(name, (int)TastierKind.Proc, (int)TastierType.Undefined, 1, -1, 0, 0)); .)
   ) .
 
 END Tastier.

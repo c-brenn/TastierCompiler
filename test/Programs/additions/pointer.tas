@@ -1,0 +1,8 @@
+program Pointer
+  int *** i, k;
+  def main
+    int j;
+    j := 0;
+    write j;
+  end
+end
