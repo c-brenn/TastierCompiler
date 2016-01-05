@@ -320,6 +320,7 @@ Expr<out TastierType type>      (.  TastierType type1;
                                     type = TastierType.Pointer;
                                     program.Add(new Instruction("", "Malloc"));
                                 .)
+  | '(' Expr<out type> ')'
   ).
 
 /*------------------------------------------------------------------------*/
@@ -692,7 +693,7 @@ Stat<out StatementType statType>(.  TastierType type, type1;
                                     openLabels.Push(generateLabel()); //second label is for the loop end
                                     program.Add(new Instruction(loopStartLabel, "Nop"));
                                 .)
-  '(' Expr<out type> ')'        (.
+      Expr<out type>            (.
                                     if ((TastierType)type != TastierType.Boolean) {
                                       SemErr("boolean type expected");
                                     }
