@@ -1,0 +1,7 @@
+program Char
+  def main
+    char c;
+    c := 'c';
+    write c;
+  end
+end

@@ -8,7 +8,8 @@ COMPILER Tastier
     Undefined,
     Integer,
     Boolean,
-    Pointer
+    Pointer,
+    Char
   };
 
   enum TastierKind : int {  // kinds of symbol
@@ -263,7 +264,7 @@ Symbol lookup(Stack<Scope> scopes, string name) {
 /*--------------------------------------------------------------------------*/
 
 CHARACTERS
-letter = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz".
+  letter = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz".
   digit = "0123456789".
   cr  = '\r'.
   lf  = '\n'.
@@ -273,6 +274,7 @@ letter = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz".
 TOKENS
   ident  = letter {letter | digit | underscore}.
   number = digit {digit}.
+  character = "'" letter "'".
 
 COMMENTS FROM "/*" TO "*/" NESTED
 COMMENTS FROM "//" TO lf
@@ -408,6 +410,11 @@ Factor<out TastierType type>    (.  int n; Symbol sym; string name; .)
                                     n = Convert.ToInt32(t.val);
                                     program.Add(new Instruction("", "Const " + n));
                                     type = TastierType.Integer;
+                                .)
+  | character                   (.
+                                    type = TastierType.Char;
+                                    char c = t.val[1];
+                                    program.Add(new Instruction("", "Const " + (int)c));
                                 .)
   | '-'
     Factor<out type>            (.
@@ -766,18 +773,22 @@ Stat<out StatementType statType>(.  TastierType type;
 | "write"
   Expr<out type>                (.
                                     statType = StatementType.Write;
-                                    if (type != TastierType.Integer) {
-                                      SemErr("integer type expected");
+                                    if (type == TastierType.Integer) {
+                                      program.Add(new Instruction("", "Write"));
+                                    } else if (type == TastierType.Char) {
+                                      program.Add(new Instruction("", "WriteChar"));
+                                    } else {
+                                      SemErr($"Write expects Integer, got {type}");
                                     }
-                                    program.Add(new Instruction("", "Write"));
                                 .)
  {
   ','
   Expr<out type>                (.
-                                    if (type != TastierType.Integer) {
-                                      SemErr("integer type expected");
+                                    if (type == TastierType.Integer) {
+                                      program.Add(new Instruction("", "Write"));
+                                    } else {
+                                      SemErr("Write expects Integer, got {type}");
                                     }
-                                    program.Add(new Instruction("", "Write"));
                                 .)
  }
  ';'
@@ -857,6 +868,7 @@ Type<out TastierType type>
 =                               (.  type = TastierType.Undefined; .)
  ( "int"                        (.  type = TastierType.Integer; .)
  | "bool"                       (.  type = TastierType.Boolean; .)
+ | "char"                       (.  type = TastierType.Char; .)
  ).
 
 /*------------------------------------------------------------------------*/
