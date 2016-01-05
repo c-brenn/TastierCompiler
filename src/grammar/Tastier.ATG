@@ -786,8 +786,10 @@ Stat<out StatementType statType>(.  TastierType type;
   Expr<out type>                (.
                                     if (type == TastierType.Integer) {
                                       program.Add(new Instruction("", "Write"));
+                                    } else if (type == TastierType.Char) {
+                                      program.Add(new Instruction("", "WriteChar"));
                                     } else {
-                                      SemErr("Write expects Integer, got {type}");
+                                      SemErr($"Write expects Integer, got {type}");
                                     }
                                 .)
  }

@@ -3,5 +3,11 @@ program Char
     char c;
     c := 'c';
     write c;
+    char * foo;
+    foo := malloc 3;
+    foo[0] := 'o';
+    foo[1] := 'm';
+    foo[2] := 'g';
+    write foo[0], foo[1], foo[2];
   end
 end
