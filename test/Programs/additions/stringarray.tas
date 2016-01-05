@@ -1,0 +1,12 @@
+program StringArray
+  def main
+    char ** array;
+    array := malloc 2;
+    array[0] := "a string";
+    array[1] := "another string";
+    char * wow;
+    wow := array[1];
+    write array[0], array[1], wow;
+    write "a literal string", wow;
+  end
+end
