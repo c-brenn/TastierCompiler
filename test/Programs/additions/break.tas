@@ -1,0 +1,13 @@
+program Break
+  def main
+    int i;
+    i := 2;
+    if(i != 2)
+      write i;
+    else
+      i := 3;
+      write i;
+    end
+    write i;
+  end
+end

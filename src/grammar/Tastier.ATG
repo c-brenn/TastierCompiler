@@ -647,21 +647,22 @@ Stat<out StatementType statType>(.  TastierType type;
                                     }
                                     openLabels.Push(generateLabel());
                                     program.Add(new Instruction("", "FJmp " + openLabels.Peek()));
-                                .)
-      Stat<out statType>        (.
                                     Instruction startOfElse = new Instruction(openLabels.Pop(), "Nop");
+                                    openLabels.Push(generateLabel());
+                                .)
+      StatList                  (.
                                     /*
                                        If we got into the "if", we need to
                                        jump over the "else" so that it
                                        doesn't get executed.
                                     */
-                                    openLabels.Push(generateLabel());
                                     program.Add(new Instruction("", "Jmp " + openLabels.Peek()));
                                     program.Add(startOfElse);
                                 .)
       [ "else"
-        Stat<out statType>
+        StatList
       ]                         (.  program.Add(new Instruction(openLabels.Pop(), "Nop")); .)
+  "end"
 
 | "while"                       (.
                                     statType = StatementType.Loop;
@@ -817,7 +818,7 @@ Stat<out StatementType statType>(.  TastierType type;
                                 .)
  }
  ';'
-
+ | "break" ';'                  (.  program.Add(new Instruction("", "Jmp " + openLabels.Peek())); .)
  .
 
 /*------------------------------------------------------------------------*/
