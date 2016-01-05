@@ -1,0 +1,19 @@
+program Case
+  def main
+    int i;
+    i := 4;
+    case i
+    when 0
+      i := 0;
+      write i;
+    when 1
+      i := 1;
+      write i;
+    when 2
+      i := 2;
+      write i;
+    else
+      write i;
+    end
+  end
+end

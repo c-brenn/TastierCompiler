@@ -547,7 +547,7 @@ SimExpr<out TastierType type>   (.  TastierType type1; Instruction inst; .)
 
 /*------------------------------------------------------------------------*/
 
-Stat<out StatementType statType>(.  TastierType type;
+Stat<out StatementType statType>(.  TastierType type, type1;
                                     string name;
                                     Symbol sym;
                                     bool isExternal = false;
@@ -640,7 +640,7 @@ Stat<out StatementType statType>(.  TastierType type;
   )
 
 | "if"
-  '(' Expr<out type> ')'        (.
+   Expr<out type>               (.
                                     statType = StatementType.IfElse;
                                     if ((TastierType)type != TastierType.Boolean) {
                                       SemErr("boolean type expected");
@@ -663,7 +663,29 @@ Stat<out StatementType statType>(.  TastierType type;
         StatList
       ]                         (.  program.Add(new Instruction(openLabels.Pop(), "Nop")); .)
   "end"
-
+| "case"                        (.  openLabels.Push(generateLabel()); .)
+  Expr<out type>                (.
+                                    if ((TastierType)type != TastierType.Integer) SemErr($"Case expression expected Integer, got {type}");
+                                .)
+  {
+                                // copy the value to be compared
+    "when"                      (.  program.Add(new Instruction("", "Dup")); .)
+    Expr<out type1>             (.
+                                    if (type != type1) {
+                                      SemErr($"Incompatible types in case statement. Expected {type}, got {type1}");
+                                    }
+                                    string nextCaseLabel = generateLabel();
+                                    program.Add(new Instruction("", "Equ"));
+                                    program.Add(new Instruction("", "FJmp " + nextCaseLabel));
+                                .)
+    StatList                    (.
+                                    program.Add(new Instruction("", "Jmp " + openLabels.Peek()));
+                                    program.Add(new Instruction(nextCaseLabel, "Nop"));
+                                .)
+  }
+  "else"                        (.  program.Add(new Instruction("", "Pop")); .)
+  StatList
+  "end"                         (.  program.Add(new Instruction(openLabels.Pop(), "Nop")); .)
 | "while"                       (.
                                     statType = StatementType.Loop;
                                     string loopStartLabel = generateLabel();

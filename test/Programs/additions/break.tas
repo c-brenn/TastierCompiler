@@ -2,10 +2,11 @@ program Break
   def main
     int i;
     i := 2;
-    if(i != 2)
+    if i != 2
       write i;
     else
       i := 3;
+      break;
       write i;
     end
     write i;
