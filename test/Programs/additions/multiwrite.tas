@@ -1,8 +1,8 @@
-program MultiWrite {
-  void Main() {
+program MultiWrite
+  def main
     int i, j;
     i := 2;
     j := 3;
     write i, j;
-  }
-}
+  end
+end

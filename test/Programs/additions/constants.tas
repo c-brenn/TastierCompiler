@@ -1,15 +1,15 @@
-program Constants {
+program Constants
   int k;
-  void WriteK() {
+  def write_k
     write k;
-  }
+  end
   const int i := 2;
 
-  void Main() {
+  def main
     const int j := 4;
     write i;
     write j;
     k := 6;
-    WriteK();
-  }
-}
+    write_k;
+  end
+end

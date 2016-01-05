@@ -4,7 +4,7 @@ program Test
   def sum_up
     int sum;
     sum := 0;
-    while (i > 0) do
+    while i > 0 do
       sum := sum + i; i := i - 1;
     end
     write sum;
@@ -12,7 +12,7 @@ program Test
 
   def main
     read i;
-    while (i > 0) do
+    while i > 0 do
       sum_up;
       read i;
     end
