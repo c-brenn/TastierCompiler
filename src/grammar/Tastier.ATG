@@ -777,6 +777,8 @@ Stat<out StatementType statType>(.  TastierType type;
                                       program.Add(new Instruction("", "Write"));
                                     } else if (type == TastierType.Char) {
                                       program.Add(new Instruction("", "WriteChar"));
+                                    } else if (type == TastierType.Pointer) {
+                                      program.Add(new Instruction("", "WriteStr"));
                                     } else {
                                       SemErr($"Write expects Integer, got {type}");
                                     }
@@ -788,6 +790,8 @@ Stat<out StatementType statType>(.  TastierType type;
                                       program.Add(new Instruction("", "Write"));
                                     } else if (type == TastierType.Char) {
                                       program.Add(new Instruction("", "WriteChar"));
+                                    } else if (type == TastierType.Pointer) {
+                                      program.Add(new Instruction("", "WriteStr"));
                                     } else {
                                       SemErr($"Write expects Integer, got {type}");
                                     }

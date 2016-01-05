@@ -1,0 +1,13 @@
+program String
+  def main
+    char * foo;
+    foo := malloc 3;
+    foo[0] := 'o';
+    foo[1] := 'm';
+    foo[2] := 'g';
+    write foo;
+    char * woo;
+    woo := foo;
+    write woo;
+  end
+end
