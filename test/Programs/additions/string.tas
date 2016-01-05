@@ -9,5 +9,9 @@ program String
     char * woo;
     woo := foo;
     write woo;
+    char * loo;
+    loo := "a string";
+    foo := loo;
+    write loo, foo;
   end
 end

@@ -270,11 +270,13 @@ CHARACTERS
   lf  = '\n'.
   tab = '\t'.
   underscore = '_'.
+  strchar = ANY - cr - lf - '\"'.
 
 TOKENS
   ident  = letter {letter | digit | underscore}.
   number = digit {digit}.
   character = "'" letter "'".
+  string = '"' { strchar } '"'.
 
 COMMENTS FROM "/*" TO "*/" NESTED
 COMMENTS FROM "//" TO lf
@@ -415,6 +417,23 @@ Factor<out TastierType type>    (.  int n; Symbol sym; string name; .)
                                     type = TastierType.Char;
                                     char c = t.val[1];
                                     program.Add(new Instruction("", "Const " + (int)c));
+                                .)
+  | string                      (.
+                                    type = TastierType.Pointer;
+                                    string s = t.val.Trim(new Char[] { '"' });
+                                    program.Add(new Instruction("", "Const " + s.Length));
+                                    program.Add(new Instruction("", "Malloc"));
+                                    for(int i = 0; i < s.Length; i++) {
+                                      char c = s[i];
+                                      //copy the base address
+                                      program.Add(new Instruction("", "Dup"));
+                                      // calulate the address
+                                      program.Add(new Instruction("", "Const " + i));
+                                      program.Add(new Instruction("", "CalcAddress"));
+                                      // store the character
+                                      program.Add(new Instruction("", "Const " + (int)c));
+                                      program.Add(new Instruction("", "StoreTop"));
+                                    }
                                 .)
   | '-'
     Factor<out type>            (.
