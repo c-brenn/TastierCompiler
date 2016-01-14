@@ -1,0 +1,22 @@
+program Struct
+  defstruct silly_name
+    int wow;
+    char another;
+    char * woweeee;
+  end
+
+  def main
+    write 6;
+    struct silly_name ooo;
+    ooo := malloc silly_name;
+    ooo.wow := 2;
+    write ooo.wow;
+    ooo.another := 'c';
+    write ooo.another;
+    ooo.woweeee := "fuck this shit";
+    write ooo.woweeee;
+    struct silly_name nooo;
+    nooo := ooo;
+    write nooo.another;
+  end
+end

@@ -9,7 +9,8 @@ COMPILER Tastier
     Integer,
     Boolean,
     Pointer,
-    Char
+    Char,
+    Struct
   };
 
   enum TastierKind : int {  // kinds of symbol
@@ -92,6 +93,52 @@ COMPILER Tastier
 */
 
   class Scope : Stack<Symbol> {}
+
+/*
+   Struct things
+   //using StructItem = System.Tuple<string, int, int, int>;
+   * Item1 -> item name
+   * Item2 -> item type
+   * Item3 -> item pointer depth
+   * Item4 -> item base type (if pointer)
+   //using Struct = System.Tuple<string, int, List<StructItem>>;
+   * Item1 -> struct name
+   * Item2 -> struct id
+   * Item3 -> list of items in the struct
+*/
+
+List<Struct> declaredStructs = new List<Struct>();
+int structId = 0;
+
+Struct lookupStruct(string name) {
+  foreach(Struct s in declaredStructs) {
+    if(s.Item1 == name) return s;
+  }
+  SemErr($"No Struct named {name} exists");
+  return null;
+}
+
+Struct lookupStructById(int id) {
+  foreach(Struct s in declaredStructs) {
+    if(s.Item2 == id) return s;
+  }
+  SemErr($"No Struct with id {id} exists");
+  return null;
+}
+
+int getStructItemIndex(Struct s, string itemName) {
+  int i = 0;
+  foreach(StructItem item in s.Item3) {
+    if(item.Item1 == itemName) return i;
+    i++;
+  }
+  SemErr($"No item named {itemName} exists in the Struct {s.Item1}");
+  return -1;
+}
+
+int structSize(Struct s) {
+  return s.Item3.Count;
+}
 
 /*
   A scope contains a stack of symbol definitions. Every time we come across
@@ -313,16 +360,27 @@ Expr<out TastierType type>      (.  TastierType type1;
                                 .)
     [ TernaryExpr<out type> ]
   ]
-  | "malloc" Expr<out type1>    (.
-                                    if(type1 != TastierType.Integer) {
-                                      SemErr($"Invalid argument to malloc. Expected Integer, got {type1}");
-                                    }
-                                    type = TastierType.Pointer;
-                                    program.Add(new Instruction("", "Malloc"));
-                                .)
+  | Malloc<out type>
   | '(' Expr<out type> ')'
   ).
 
+/*------------------------------------------------------------------------*/
+Malloc<out TastierType type>   (. string name; type = TastierType.Undefined; .)
+=
+  "malloc"
+  (number                      (.
+                                    int n = Convert.ToInt32(t.val);
+                                    program.Add(new Instruction("", "Const " + n));
+                                    type = TastierType.Pointer;
+                                    program.Add(new Instruction("", "Malloc"));
+                               .)
+  | Ident<out name>            (.
+                                    Struct s = lookupStruct(name);
+                                    program.Add(new Instruction("", "Const " + structSize(s)));
+                                    program.Add(new Instruction("", "Malloc"));
+                                    type = TastierType.Struct;
+                               .)
+  ).
 /*------------------------------------------------------------------------*/
 TernaryExpr<out TastierType type> (. TastierType type1; .)
 = '?'
@@ -348,6 +406,7 @@ Factor<out TastierType type>    (.  int n; Symbol sym; string name; .)
 =                               (.  type = TastierType.Undefined;
                                     int pointerDepth = 0;
                                     bool pointerAccess = false;
+                                    bool structAccess = false;
                                 .)
   ( Ident<out name>             (.
                                     bool isExternal = false; //CS3071 students can ignore external declarations, since they only deal with compilation of single files.
@@ -361,17 +420,45 @@ Factor<out TastierType type>    (.  int n; Symbol sym; string name; .)
                                       SemErr("reference to undefined variable " + name);
                                     }
                                 .)
+    [
+    '.' Ident<out name>         (.
+                                    if((TastierType)sym.Item3 != TastierType.Struct) SemErr($"Expected Struct, got {(TastierType)sym.Item3}");
+                                    structAccess = true;
+                                    // find the struct item being accessed
+                                    Struct s = lookupStructById(sym.Item6);
+                                    int itemIndex = getStructItemIndex(s, name);
+                                    StructItem item = s.Item3[itemIndex];
+                                    // load the base address of the struct
+                                    if(sym.Item4 == 0) {
+                                      program.Add(new Instruction("", "LoadG " + (sym.Item5 + 3)));
+                                    } else {
+                                      int lexicalLevelDifference = Math.Abs(openScopes.Count - sym.Item4)-1;
+                                      program.Add(new Instruction("", "Load " + lexicalLevelDifference + " " + sym.Item5));
+                                    }
+                                    // add the index of the item to the base address
+                                    program.Add(new Instruction("", "Const " + itemIndex));
+                                    program.Add(new Instruction("", "CalcAddress"));
+                                    sym = new Symbol(
+                                      "",
+                                      (int)TastierKind.Var,
+                                      item.Item2,
+                                      0, 0,
+                                      item.Item3,
+                                      item.Item4
+                                      );
+                                .)
+    ]
 {
     '['                         (.  if((TastierType)sym.Item3 != TastierType.Pointer) SemErr("Expected Pointer, got {type}");
                                     // load base address if this is the first index
-                                    if(pointerDepth == 0) {
+                                    if(pointerDepth == 0 && !structAccess) {
                                       if(sym.Item4 == 0) {
                                         program.Add(new Instruction("", "LoadG " + (sym.Item5 + 3)));
                                       } else {
                                         int lexicalLevelDifference = Math.Abs(openScopes.Count - sym.Item4)-1;
                                         program.Add(new Instruction("", "Load " + lexicalLevelDifference + " " + sym.Item5));
                                       }
-                                      } else {
+                                      } else if(pointerDepth > 0) {
                                         program.Add(new Instruction("", "LoadTop"));
                                       }
                                 .)
@@ -389,8 +476,11 @@ Factor<out TastierType type>    (.  int n; Symbol sym; string name; .)
 
   }
                                 (.
-                                    if (pointerAccess) {
-                                      type = (pointerDepth < sym.Item6)? TastierType.Pointer : (TastierType)sym.Item7;
+                                    if (pointerAccess || structAccess) {
+                                      type = (TastierType)sym.Item3;
+                                      if(pointerAccess) {
+                                        type = (pointerDepth < sym.Item6)? TastierType.Pointer : (TastierType)sym.Item7;
+                                      }
                                       program.Add(new Instruction("", "LoadTop"));
                                     } else {
                                       type = (TastierType)sym.Item3;
@@ -554,6 +644,7 @@ Stat<out StatementType statType>(.  TastierType type, type1;
                                     bool isExternal = false;
                                     statType = StatementType.Other;
                                     bool pointerAccess = false;
+                                    bool structAccess = false;
                                     int pointerDepth = 0;
                                 .)
 
@@ -567,19 +658,47 @@ Stat<out StatementType statType>(.  TastierType type, type1;
                                       SemErr("reference to undefined variable " + name);
                                     }
                                 .)
+  [
+    '.' Ident<out name>         (.
+                                    if((TastierType)sym.Item3 != TastierType.Struct) SemErr($"Expected Struct, got {(TastierType)sym.Item3}");
+                                    structAccess = true;
+                                    // find the struct item being accessed
+                                    Struct s = lookupStructById(sym.Item6);
+                                    int itemIndex = getStructItemIndex(s, name);
+                                    StructItem item = s.Item3[itemIndex];
+                                    // load the base address of the struct
+                                    if(sym.Item4 == 0) {
+                                      program.Add(new Instruction("", "LoadG " + (sym.Item5 + 3)));
+                                    } else {
+                                      int lexicalLevelDifference = Math.Abs(openScopes.Count - sym.Item4)-1;
+                                      program.Add(new Instruction("", "Load " + lexicalLevelDifference + " " + sym.Item5));
+                                    }
+                                    // add the index of the item to the base address
+                                    program.Add(new Instruction("", "Const " + itemIndex));
+                                    program.Add(new Instruction("", "CalcAddress"));
+                                    sym = new Symbol(
+                                      "",
+                                      (int)TastierKind.Var,
+                                      item.Item2,
+                                      0, 0,
+                                      item.Item3,
+                                      item.Item4
+                                      );
+                                .)
+  ]
   {
-    '['                         (.  if((TastierType)sym.Item3 != TastierType.Pointer) SemErr("Expected Pointer, got {type}");
+    '['                         (.  if((TastierType)sym.Item3 != TastierType.Pointer) SemErr($"Expected Pointer, got {(TastierType)sym.Item3}");
                                     // load base address if this is the first index
-                                    if(pointerDepth == 0) {
+                                    if(pointerDepth == 0 && !structAccess) {
                                       if(sym.Item4 == 0) {
                                         program.Add(new Instruction("", "LoadG " + (sym.Item5 + 3)));
                                       } else {
                                         int lexicalLevelDifference = Math.Abs(openScopes.Count - sym.Item4)-1;
                                         program.Add(new Instruction("", "Load " + lexicalLevelDifference + " " + sym.Item5));
                                       }
-                                      } else {
-                                        program.Add(new Instruction("", "LoadTop"));
-                                      }
+                                    } else if(pointerDepth > 0) {
+                                      program.Add(new Instruction("", "LoadTop"));
+                                    }
                                 .)
      Expr<out type>
     ']'                         (.
@@ -604,8 +723,11 @@ Stat<out StatementType statType>(.  TastierType type, type1;
                                 .)
     Expr<out type> ';'
                                 (.
-                                    if (pointerAccess) {
-                                      TastierType expectedType = (pointerDepth < sym.Item6)? TastierType.Pointer : (TastierType)sym.Item7;
+                                    if (pointerAccess || structAccess) {
+                                      TastierType expectedType = (TastierType)sym.Item3;
+                                      if(pointerAccess) {
+                                        expectedType = (pointerDepth < sym.Item6)? TastierType.Pointer : (TastierType)sym.Item7;
+                                      }
                                       if(type != expectedType) SemErr($"Incompatible types. Expected {expectedType} got {type}");
                                       program.Add(new Instruction("", "StoreTop"));
 
@@ -858,7 +980,7 @@ Tastier                         (.  string name; bool external = false; .)
   Ident<out name>               (.
                                     openScopes.Push(new Scope());
                                 .)
-  { ConstDecl | VarDecl<external> |
+  { ConstDecl | VarDecl<external> | StructDecl |
     /* Jump over procedure declarations so constants can be defined */
     /* in the global scope */
                                 (.
@@ -953,15 +1075,45 @@ ConstDecl                       (.
 .
 
 /*------------------------------------------------------------------------*/
+StructDecl                      (. string name, itemName; TastierType type;
+                                   int pointerDepth = 0;
+                                   TastierType baseType = TastierType.Undefined;
+                                .)
+=
+  "defstruct" Ident<out name>   (. List<StructItem> items = new List<StructItem>(); .)
+  {
+    Type<out type>
+    { '*'                       (.  pointerDepth++;
+                                    if(pointerDepth == 1){
+                                      baseType = type;
+                                      type = TastierType.Pointer;
+                                    }
+                                .)
+    }
+    Ident<out itemName>
+    ';'                         (.
+                                   StructItem i = new StructItem(itemName,
+                                                      (int) type,
+                                                      pointerDepth,
+                                                      (int) baseType);
+                                   items.Add(i);
+                                .)
+  }
+  "end"                         (.
+                                   declaredStructs.Add(new Struct(name, structId, items));
+                                   structId++;
+                                .)
+  .
+/*------------------------------------------------------------------------*/
 
 VarDecl<bool external>          (.
                                     string name;
-                                    TastierType type;
+                                    TastierType type = TastierType.Undefined;
                                     TastierType pointerBaseType = TastierType.Undefined;
                                     Scope currentScope = openScopes.Peek();
                                     int pointerDepth = 0;
                                 .)
-= Type<out type>
+= (Type<out type>
   { '*'                         (.  pointerDepth++;
                                     if(pointerDepth == 1){
                                       pointerBaseType = type;
@@ -969,6 +1121,13 @@ VarDecl<bool external>          (.
                                     }
                                 .)
   }
+  | "struct" Ident<out name>    (.
+                                   Struct s = lookupStruct(name);
+                                   type = TastierType.Struct;
+                                   // set struct id
+                                   pointerDepth = s.Item2;
+                                .)
+  )
   Ident<out name>               (.
                                     if (external) {
                                       externalDeclarations.Push(new Symbol(name, (int)TastierKind.Var, (int)type, 0, 0, 0, 0));
