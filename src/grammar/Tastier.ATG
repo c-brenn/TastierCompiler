@@ -431,66 +431,17 @@ TernaryExpr<out TastierType type> (. TastierType type1; .)
                                .).
 /*------------------------------------------------------------------------*/
 
-Factor<out TastierType type>    (.  int n; Symbol sym; string name; .)
-=                               (.  type = TastierType.Undefined;
-                                    int pointerDepth = 0;
-                                    bool pointerAccess = false;
-                                    bool structAccess = false;
+Factor<out TastierType type>    (.  int n; Symbol sym;
+                                    type = TastierType.Undefined;
+                                    int pointerDepth;
+                                    bool pointerAccess;
+                                    bool structAccess;
                                 .)
-  ( Ident<out name>             (.
-                                    sym = lookup(openScopes, name);
-                                    if (sym == null) {
-                                      sym = _lookup(externalDeclarations, name);
-                                    }
-
-                                    if (sym == null) {
-                                      SemErr("reference to undefined variable " + name);
-                                    }
-                                .)
-    [
-    '.' Ident<out name>         (.
-                                    checkType(TastierType.Struct, (TastierType)sym.Item3);
-                                    structAccess = true;
-                                    // find the struct item being accessed
-                                    Struct s = lookupStructById(sym.Item6);
-                                    int itemIndex = getStructItemIndex(s, name);
-                                    StructItem item = s.Item3[itemIndex];
-                                    // load the base address of the struct
-                                    genericLoad(sym);
-                                    // add the index of the item to the base address
-                                    program.Add(new Instruction("", "Const " + itemIndex));
-                                    program.Add(new Instruction("", "CalcAddress"));
-                                    sym = new Symbol(
-                                      "",
-                                      (int)TastierKind.Var,
-                                      item.Item2,
-                                      0, 0,
-                                      item.Item3,
-                                      item.Item4
-                                      );
-                                .)
-    ]
-{
-    '['                         (.
-                                    checkType(TastierType.Pointer, (TastierType)sym.Item3);
-                                    // load base address if this is the first index
-                                    if(pointerDepth == 0 && !structAccess) {
-                                      genericLoad(sym);
-                                    } else if(pointerDepth > 0) {
-                                      program.Add(new Instruction("", "LoadTop"));
-                                    }
-                                .)
-     Expr<out type>
-    ']'                         (.
-                                    checkType(TastierType.Integer, type);
-                                    if(pointerDepth >= sym.Item6) SemErr("Pointer access too deep");
-                                    pointerAccess = true;
-                                    pointerDepth++;
-                                    // add the offset to the address
-                                    program.Add(new Instruction("", "CalcAddress"));
-                                .)
-
-  }
+=
+  VarAccess<out sym,
+            out pointerAccess,
+            out structAccess,
+            out pointerDepth>
                                 (.
                                     if (pointerAccess || structAccess) {
                                       type = (TastierType)sym.Item3;
@@ -532,6 +483,28 @@ Factor<out TastierType type>    (.  int n; Symbol sym; string name; .)
                                       program.Add(new Instruction("", "StoreTop"));
                                     }
                                 .)
+  | '['                         (.  List<int> items = new List<int>(); .)
+    number                      (.  items.Add(Convert.ToInt32(t.val)); .)
+    {
+      ',' number                (.  items.Add(Convert.ToInt32(t.val)); .)
+    }
+    ']'                         (.
+                                    type = TastierType.Pointer;
+                                    program.Add(new Instruction("", "Const " + items.Count));
+                                    program.Add(new Instruction("", "Malloc"));
+                                    for(int i = 0; i < items.Count; i++) {
+                                      int item = items[i];
+                                      //copy the base address
+                                      program.Add(new Instruction("", "Dup"));
+                                      // calulate the address
+                                      program.Add(new Instruction("", "Const " + i));
+                                      program.Add(new Instruction("", "CalcAddress"));
+                                      // store the character
+                                      program.Add(new Instruction("", "Const " + item));
+                                      program.Add(new Instruction("", "StoreTop"));
+                                    }
+
+                                .)
   | '-'
     Factor<out type>            (.
                                     checkType(TastierType.Integer, type);
@@ -541,7 +514,7 @@ Factor<out TastierType type>    (.  int n; Symbol sym; string name; .)
                                 .)
   | "true"                      (.  program.Add(new Instruction("", "Const " + 1)); type = TastierType.Boolean; .)
   | "false"                     (.  program.Add(new Instruction("", "Const " + 0)); type = TastierType.Boolean; .)
-  ).
+  .
 
 /*------------------------------------------------------------------------*/
 
@@ -641,7 +614,6 @@ SimExpr<out TastierType type>   (.  TastierType type1; Instruction inst; .)
 /*------------------------------------------------------------------------*/
 
 Stat<out StatementType statType>(.  TastierType type;
-                                    string name;
                                     Symbol sym;
                                     bool isExternal = false;
                                     statType = StatementType.Other;
@@ -650,11 +622,71 @@ Stat<out StatementType statType>(.  TastierType type;
                                     int pointerDepth = 0;
                                 .)
 
-= Ident<out name>               (.
+=
+  VarAccess<out sym,
+            out pointerAccess,
+            out structAccess,
+            out pointerDepth>
+  ( ":="                        (.
+                                    statType = StatementType.Assignment;
+                                    if((TastierKind)sym.Item2 == TastierKind.Const) {
+                                      SemErr($"cannot reassign constant - constant name: {sym.Item1}");
+                                    } else if ((TastierKind)sym.Item2 != TastierKind.Var) {
+                                      SemErr("cannot assign to non-variable");
+                                    }
+                                .)
+    Expr<out type> ';'
+                                (.
+                                    if (pointerAccess || structAccess) {
+                                      TastierType expectedType = (TastierType)sym.Item3;
+                                      if(pointerAccess) {
+                                        expectedType = (pointerDepth < sym.Item6)? TastierType.Pointer : (TastierType)sym.Item7;
+                                      }
+                                      if(type != expectedType) SemErr($"Incompatible types. Expected {expectedType} got {type}");
+                                      program.Add(new Instruction("", "StoreTop"));
+
+                                    } else {
+                                      if (type != (TastierType)sym.Item3) {
+                                        SemErr("incompatible types");
+                                      }
+                                      genericStore(sym, isExternal);
+                                    }
+                                .)
+  | ['(' ')'] ';'                 (.
+                                    statType = StatementType.ProcCall;
+                                    if ((TastierKind)sym.Item2 != TastierKind.Proc) {
+                                      SemErr("object is not a procedure");
+                                    }
+
+                                    int currentStackLevel = openScopes.Count;
+                                    int lexicalLevelDifference = Math.Abs(openScopes.Count - sym.Item4);
+                                    string procedureLabel = getLabelForProcedureName(lexicalLevelDifference, sym.Item1);
+                                    program.Add(new Instruction("", "Call " + lexicalLevelDifference + " " + procedureLabel));
+                                .)
+  )
+
+| Conditional                   (.  statType = StatementType.Conditional; .)
+| Loop                          (.  statType = StatementType.Loop; .)
+| ReadWrite<out statType>
+| "break" ';'                  (.  program.Add(new Instruction("", "Jmp " + openLabels.Peek())); .)
+ .
+
+/*------------------------------------------------------------------------*/
+VarAccess<out Symbol sym,
+          out bool pointerAccess,
+          out bool structAccess,
+          out int pointerDepth>
+                                (. string name;
+                                   TastierType type = TastierType.Undefined;
+                                .)
+=
+  Ident<out name>               (.
+                                   pointerAccess = false;
+                                   structAccess = false;
+                                   pointerDepth = 0;
                                     sym = lookup(openScopes, name);
                                     if (sym == null) {
                                       sym = _lookup(externalDeclarations, name);
-                                      isExternal = true;
                                     }
                                     if (sym == null) {
                                       SemErr("reference to undefined variable " + name);
@@ -702,52 +734,8 @@ Stat<out StatementType statType>(.  TastierType type;
                                     // add the offset to the address
                                     program.Add(new Instruction("", "CalcAddress"));
                                 .)
-
   }
-  ( ":="                        (.
-                                    statType = StatementType.Assignment;
-                                    if((TastierKind)sym.Item2 == TastierKind.Const) {
-                                      SemErr($"cannot reassign constant - constant name: {sym.Item1}");
-                                    } else if ((TastierKind)sym.Item2 != TastierKind.Var) {
-                                      SemErr("cannot assign to non-variable");
-                                    }
-                                .)
-    Expr<out type> ';'
-                                (.
-                                    if (pointerAccess || structAccess) {
-                                      TastierType expectedType = (TastierType)sym.Item3;
-                                      if(pointerAccess) {
-                                        expectedType = (pointerDepth < sym.Item6)? TastierType.Pointer : (TastierType)sym.Item7;
-                                      }
-                                      if(type != expectedType) SemErr($"Incompatible types. Expected {expectedType} got {type}");
-                                      program.Add(new Instruction("", "StoreTop"));
-
-                                    } else {
-                                      if (type != (TastierType)sym.Item3) {
-                                        SemErr("incompatible types");
-                                      }
-                                      genericStore(sym, isExternal);
-                                    }
-                                .)
-  | ['(' ')'] ';'                 (.
-                                    statType = StatementType.ProcCall;
-                                    if ((TastierKind)sym.Item2 != TastierKind.Proc) {
-                                      SemErr("object is not a procedure");
-                                    }
-
-                                    int currentStackLevel = openScopes.Count;
-                                    int lexicalLevelDifference = Math.Abs(openScopes.Count - sym.Item4);
-                                    string procedureLabel = getLabelForProcedureName(lexicalLevelDifference, sym.Item1);
-                                    program.Add(new Instruction("", "Call " + lexicalLevelDifference + " " + procedureLabel));
-                                .)
-  )
-
-| Conditional                   (.  statType = StatementType.Conditional; .)
-| Loop                          (.  statType = StatementType.Loop; .)
-| ReadWrite<out statType>
-| "break" ';'                  (.  program.Add(new Instruction("", "Jmp " + openLabels.Peek())); .)
- .
-
+.
 /*------------------------------------------------------------------------*/
 ReadWrite<out StatementType statType>
                                 (.  string name;
@@ -946,6 +934,88 @@ Loop
   "end"
                                 (.
                                 .)
+| "foreach"                     (.  string collectionName, name; .)
+  Ident<out name>
+  "in" Ident<out collectionName>(.
+                                    // lookup collection
+                                    Symbol collection = lookup(openScopes, collectionName);
+                                    checkType(TastierType.Pointer, (TastierType)collection.Item3);
+                                    if(collection.Item6 != 1) {
+                                      SemErr($"Only pointers of depth 1 can be iterated, got depth {collection.Item6}");
+                                    }
+                                    // declare loopItem
+                                    Scope currentScope = openScopes.Peek();
+                                    Symbol loopItem = new Symbol(
+                                      name,
+                                      (int)TastierKind.Var,
+                                      collection.Item7,
+                                      openScopes.Count-1,
+                                      currentScope.Count(s => s.Item2 != (int)TastierKind.Proc),
+                                      0,
+                                      (int)TastierType.Undefined
+                                      );
+                                    currentScope.Push(loopItem);
+                                    // get length
+                                    Symbol length = new Symbol(
+                                      "",
+                                      (int)TastierKind.Var,
+                                      (int)TastierType.Integer,
+                                      openScopes.Count-1,
+                                      currentScope.Count(s => s.Item2 != (int)TastierKind.Proc),
+                                      0,
+                                      (int)TastierType.Undefined
+                                      );
+                                    currentScope.Push(length);
+                                    // declare index
+                                    Symbol index = new Symbol(
+                                      "",
+                                      (int)TastierKind.Var,
+                                      (int)TastierType.Integer,
+                                      openScopes.Count-1,
+                                      currentScope.Count(s => s.Item2 != (int)TastierKind.Proc),
+                                      0,
+                                      (int)TastierType.Undefined
+                                      );
+                                    currentScope.Push(index);
+                                    // store initial index
+                                    program.Add(new Instruction("", "Const " + 0));
+                                    genericStore(index, false);
+                                    // store length
+                                    genericLoad(collection);  //base address
+                                    program.Add(new Instruction("", "LoadTop")); //length
+                                    genericStore(length, false);
+                                    // skip increment on first iteration
+                                    string loopConditionLabel = generateLabel();
+                                    program.Add(new Instruction("", "Jmp " + loopConditionLabel));
+                                    string loopStartLabel = generateLabel();
+                                    openLabels.Push(generateLabel());
+                                    program.Add(new Instruction(loopStartLabel, "Nop"));
+                                    // increment index
+                                    genericLoad(index);
+                                    program.Add(new Instruction("", "Const 1"));
+                                    program.Add(new Instruction("", "Add"));
+                                    // copy result so it's there for next iteration
+                                    genericStore(index, false);
+                                    // check the loop condition
+                                    program.Add(new Instruction(loopConditionLabel, "Nop"));
+                                    genericLoad(index);
+                                    genericLoad(length);
+                                    program.Add(new Instruction("", "Neq"));
+                                    // jump to end if false
+                                    program.Add(new Instruction("", "FJmp " + openLabels.Peek())); // jump to the loop end label if condition is false
+                                    // assign loop item
+                                    genericLoad(collection);
+                                    genericLoad(index);
+                                    program.Add(new Instruction("", "CalcAddress"));
+                                    program.Add(new Instruction("", "LoadTop"));
+                                    genericStore(loopItem, false);
+                                    // loop
+                                .)
+  "do"
+  StatList                      (.  program.Add(new Instruction("", "Jmp " + loopStartLabel));
+                                    program.Add(new Instruction(openLabels.Pop(), "Nop")); // put the loop end label here
+                                .)
+  "end"
 .
 /*------------------------------------------------------------------------*/
  StatList                      (. StatementType statType = StatementType.Other;
@@ -1132,7 +1202,6 @@ VarDecl<bool external>          (.
                                                         pointerDepth,
                                                         (int) pointerBaseType));
                                     }
-                                    Console.WriteLine($"name: {name}, Type: {type}, pointerDepth: {pointerDepth}, baseType: {pointerBaseType}");
                                 .)
   } ';'.
 

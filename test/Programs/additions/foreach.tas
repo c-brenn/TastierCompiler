@@ -1,0 +1,14 @@
+program ForEach
+  def main
+    char * str;
+    str := "wow";
+    foreach c in str do
+      write c;
+    end
+    int * numbers;
+    numbers := [1, 2, 3, 4, 5];
+    foreach number in numbers do
+      write number;
+    end
+  end
+end
