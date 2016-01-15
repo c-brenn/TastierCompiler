@@ -823,7 +823,11 @@ Conditional                     (. TastierType type, type1 = TastierType.Undefin
   "end"
 | "case"                        (.  openLabels.Push(generateLabel()); .)
   Expr<out type>                (.
-                                    checkType(TastierType.Integer, type);
+                                    if(type != TastierType.Integer &&
+                                       type != TastierType.Boolean &&
+                                       type != TastierType.Char) {
+                                      SemErr($"Invalid type for case statement. Expected Integer/Boolenan/Char, got {type}.");
+                                    }
                                 .)
   {
                                 // copy the value to be compared

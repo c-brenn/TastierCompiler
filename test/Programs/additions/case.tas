@@ -15,5 +15,16 @@ program Case
     else
       write i;
     end
+
+    char c;
+    c := 'j';
+    case c
+    when 'i'
+      write c;
+    when 'j'
+      write c;
+    else
+      write "oh dear";
+    end
   end
 end
