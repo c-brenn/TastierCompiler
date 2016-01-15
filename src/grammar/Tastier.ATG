@@ -23,7 +23,7 @@ COMPILER Tastier
     Read,
     Write,
     Assignment,
-    IfElse,
+    Conditional,
     Loop,
     ProcCall,
     Other
@@ -93,6 +93,36 @@ COMPILER Tastier
 */
 
   class Scope : Stack<Symbol> {}
+
+  void genericLoad(Symbol sym) {
+    if(sym.Item4 == 0) {
+      program.Add(new Instruction("", "LoadG " + (sym.Item5 + 3)));
+    } else {
+      int lexicalLevelDifference = Math.Abs(openScopes.Count - sym.Item4)-1;
+      program.Add(new Instruction("", "Load " + lexicalLevelDifference + " " + sym.Item5));
+    }
+  }
+
+  void genericStore(Symbol sym, bool isExternal) {
+    if (sym.Item4 == 0) {
+      if (isExternal) {
+        program.Add(new Instruction("", "StoG " + sym.Item1));
+        // if the symbol is external, we also store it by name. The linker will resolve the name to an address.
+      } else {
+        program.Add(new Instruction("", "StoG " + (sym.Item5+3)));
+      }
+    }
+    else {
+      int lexicalLevelDifference = Math.Abs(openScopes.Count - sym.Item4)-1;
+      program.Add(new Instruction("", "Sto " + lexicalLevelDifference + " " + sym.Item5));
+    }
+  }
+
+  void checkType(TastierType expected, TastierType actual) {
+    if(expected != actual) {
+      SemErr($"Type error, expected {expected} but got {actual}");
+    }
+  }
 
 /*
    Struct things
@@ -368,13 +398,12 @@ Expr<out TastierType type>      (.  TastierType type1;
 Malloc<out TastierType type>   (. string name; type = TastierType.Undefined; .)
 =
   "malloc"
-  (number                      (.
-                                    int n = Convert.ToInt32(t.val);
-                                    program.Add(new Instruction("", "Const " + n));
+  (Expr<out type>              (.
+                                    checkType(TastierType.Integer, type);
                                     type = TastierType.Pointer;
                                     program.Add(new Instruction("", "Malloc"));
                                .)
-  | Ident<out name>            (.
+  | "sizeof" Ident<out name>   (.
                                     Struct s = lookupStruct(name);
                                     program.Add(new Instruction("", "Const " + structSize(s)));
                                     program.Add(new Instruction("", "Malloc"));
@@ -409,11 +438,9 @@ Factor<out TastierType type>    (.  int n; Symbol sym; string name; .)
                                     bool structAccess = false;
                                 .)
   ( Ident<out name>             (.
-                                    bool isExternal = false; //CS3071 students can ignore external declarations, since they only deal with compilation of single files.
                                     sym = lookup(openScopes, name);
                                     if (sym == null) {
                                       sym = _lookup(externalDeclarations, name);
-                                      isExternal = true;
                                     }
 
                                     if (sym == null) {
@@ -422,19 +449,14 @@ Factor<out TastierType type>    (.  int n; Symbol sym; string name; .)
                                 .)
     [
     '.' Ident<out name>         (.
-                                    if((TastierType)sym.Item3 != TastierType.Struct) SemErr($"Expected Struct, got {(TastierType)sym.Item3}");
+                                    checkType(TastierType.Struct, (TastierType)sym.Item3);
                                     structAccess = true;
                                     // find the struct item being accessed
                                     Struct s = lookupStructById(sym.Item6);
                                     int itemIndex = getStructItemIndex(s, name);
                                     StructItem item = s.Item3[itemIndex];
                                     // load the base address of the struct
-                                    if(sym.Item4 == 0) {
-                                      program.Add(new Instruction("", "LoadG " + (sym.Item5 + 3)));
-                                    } else {
-                                      int lexicalLevelDifference = Math.Abs(openScopes.Count - sym.Item4)-1;
-                                      program.Add(new Instruction("", "Load " + lexicalLevelDifference + " " + sym.Item5));
-                                    }
+                                    genericLoad(sym);
                                     // add the index of the item to the base address
                                     program.Add(new Instruction("", "Const " + itemIndex));
                                     program.Add(new Instruction("", "CalcAddress"));
@@ -449,24 +471,18 @@ Factor<out TastierType type>    (.  int n; Symbol sym; string name; .)
                                 .)
     ]
 {
-    '['                         (.  if((TastierType)sym.Item3 != TastierType.Pointer) SemErr("Expected Pointer, got {type}");
+    '['                         (.
+                                    checkType(TastierType.Pointer, (TastierType)sym.Item3);
                                     // load base address if this is the first index
                                     if(pointerDepth == 0 && !structAccess) {
-                                      if(sym.Item4 == 0) {
-                                        program.Add(new Instruction("", "LoadG " + (sym.Item5 + 3)));
-                                      } else {
-                                        int lexicalLevelDifference = Math.Abs(openScopes.Count - sym.Item4)-1;
-                                        program.Add(new Instruction("", "Load " + lexicalLevelDifference + " " + sym.Item5));
-                                      }
-                                      } else if(pointerDepth > 0) {
-                                        program.Add(new Instruction("", "LoadTop"));
-                                      }
+                                      genericLoad(sym);
+                                    } else if(pointerDepth > 0) {
+                                      program.Add(new Instruction("", "LoadTop"));
+                                    }
                                 .)
      Expr<out type>
     ']'                         (.
-                                    if(type != TastierType.Integer) {
-                                      SemErr($"Invalid pointer index. Expected Integer, got {type}");
-                                    }
+                                    checkType(TastierType.Integer, type);
                                     if(pointerDepth >= sym.Item6) SemErr("Pointer access too deep");
                                     pointerAccess = true;
                                     pointerDepth++;
@@ -485,17 +501,7 @@ Factor<out TastierType type>    (.  int n; Symbol sym; string name; .)
                                     } else {
                                       type = (TastierType)sym.Item3;
                                       if ((TastierKind)sym.Item2 != TastierKind.Proc) {
-                                        if (sym.Item4 == 0) {
-                                            if (isExternal) {
-                                              program.Add(new Instruction("", "LoadG " + sym.Item1));
-                                              // if the symbol is external, we load it by name. The linker will resolve the name to an address.
-                                            } else {
-                                              program.Add(new Instruction("", "LoadG " + (sym.Item5+3)));
-                                            }
-                                        } else {
-                                            int lexicalLevelDifference = Math.Abs(openScopes.Count - sym.Item4)-1;
-                                            program.Add(new Instruction("", "Load " + lexicalLevelDifference + " " + sym.Item5));
-                                        }
+                                        genericLoad(sym);
                                       } else SemErr("variable expected");
                                     }
                                 .)
@@ -528,10 +534,7 @@ Factor<out TastierType type>    (.  int n; Symbol sym; string name; .)
                                 .)
   | '-'
     Factor<out type>            (.
-                                    if (type != TastierType.Integer) {
-                                      SemErr("integer type expected");
-                                      type = TastierType.Integer;
-                                    }
+                                    checkType(TastierType.Integer, type);
                                     program.Add(new Instruction("", "Neg"));
                                     program.Add(new Instruction("", "Const 1"));
                                     program.Add(new Instruction("", "Add"));
@@ -629,16 +632,15 @@ SimExpr<out TastierType type>   (.  TastierType type1; Instruction inst; .)
 = Term<out type>
   { AddOp<out inst>
     Term<out type1>             (.
-                                    if (type != TastierType.Integer || type1 != TastierType.Integer) {
-                                      SemErr("integer type expected");
-                                    }
+                                    checkType(TastierType.Integer, type);
+                                    checkType(TastierType.Integer, type1);
                                     program.Add(inst);
                                 .)
   }.
 
 /*------------------------------------------------------------------------*/
 
-Stat<out StatementType statType>(.  TastierType type, type1;
+Stat<out StatementType statType>(.  TastierType type;
                                     string name;
                                     Symbol sym;
                                     bool isExternal = false;
@@ -660,19 +662,14 @@ Stat<out StatementType statType>(.  TastierType type, type1;
                                 .)
   [
     '.' Ident<out name>         (.
-                                    if((TastierType)sym.Item3 != TastierType.Struct) SemErr($"Expected Struct, got {(TastierType)sym.Item3}");
+                                    checkType(TastierType.Struct, (TastierType)sym.Item3);
                                     structAccess = true;
                                     // find the struct item being accessed
                                     Struct s = lookupStructById(sym.Item6);
                                     int itemIndex = getStructItemIndex(s, name);
                                     StructItem item = s.Item3[itemIndex];
                                     // load the base address of the struct
-                                    if(sym.Item4 == 0) {
-                                      program.Add(new Instruction("", "LoadG " + (sym.Item5 + 3)));
-                                    } else {
-                                      int lexicalLevelDifference = Math.Abs(openScopes.Count - sym.Item4)-1;
-                                      program.Add(new Instruction("", "Load " + lexicalLevelDifference + " " + sym.Item5));
-                                    }
+                                    genericLoad(sym);
                                     // add the index of the item to the base address
                                     program.Add(new Instruction("", "Const " + itemIndex));
                                     program.Add(new Instruction("", "CalcAddress"));
@@ -687,24 +684,18 @@ Stat<out StatementType statType>(.  TastierType type, type1;
                                 .)
   ]
   {
-    '['                         (.  if((TastierType)sym.Item3 != TastierType.Pointer) SemErr($"Expected Pointer, got {(TastierType)sym.Item3}");
+    '['                         (.
+                                    checkType(TastierType.Pointer, (TastierType)sym.Item3);
                                     // load base address if this is the first index
                                     if(pointerDepth == 0 && !structAccess) {
-                                      if(sym.Item4 == 0) {
-                                        program.Add(new Instruction("", "LoadG " + (sym.Item5 + 3)));
-                                      } else {
-                                        int lexicalLevelDifference = Math.Abs(openScopes.Count - sym.Item4)-1;
-                                        program.Add(new Instruction("", "Load " + lexicalLevelDifference + " " + sym.Item5));
-                                      }
+                                      genericLoad(sym);
                                     } else if(pointerDepth > 0) {
                                       program.Add(new Instruction("", "LoadTop"));
                                     }
                                 .)
      Expr<out type>
     ']'                         (.
-                                    if(type != TastierType.Integer) {
-                                      SemErr($"Invalid pointer index. Expected Integer, got {type}");
-                                    }
+                                    checkType(TastierType.Integer, type);
                                     if(pointerDepth >= sym.Item6) SemErr("Pointer access too deep");
                                     pointerAccess = true;
                                     pointerDepth++;
@@ -735,18 +726,7 @@ Stat<out StatementType statType>(.  TastierType type, type1;
                                       if (type != (TastierType)sym.Item3) {
                                         SemErr("incompatible types");
                                       }
-                                      if (sym.Item4 == 0) {
-                                        if (isExternal) {
-                                          program.Add(new Instruction("", "StoG " + sym.Item1));
-                                          // if the symbol is external, we also store it by name. The linker will resolve the name to an address.
-                                        } else {
-                                          program.Add(new Instruction("", "StoG " + (sym.Item5+3)));
-                                        }
-                                      }
-                                      else {
-                                        int lexicalLevelDifference = Math.Abs(openScopes.Count - sym.Item4)-1;
-                                        program.Add(new Instruction("", "Sto " + lexicalLevelDifference + " " + sym.Item5));
-                                      }
+                                      genericStore(sym, isExternal);
                                     }
                                 .)
   | ['(' ')'] ';'                 (.
@@ -762,12 +742,79 @@ Stat<out StatementType statType>(.  TastierType type, type1;
                                 .)
   )
 
-| "if"
-   Expr<out type>               (.
-                                    statType = StatementType.IfElse;
-                                    if ((TastierType)type != TastierType.Boolean) {
-                                      SemErr("boolean type expected");
+| Conditional                   (.  statType = StatementType.Conditional; .)
+| Loop                          (.  statType = StatementType.Loop; .)
+| ReadWrite<out statType>
+| "break" ';'                  (.  program.Add(new Instruction("", "Jmp " + openLabels.Peek())); .)
+ .
+
+/*------------------------------------------------------------------------*/
+ReadWrite<out StatementType statType>
+                                (.  string name;
+                                    TastierType type = TastierType.Undefined;
+                                    bool isExternal = false;
+                                    statType = StatementType.Other;
+                                .)
+=
+ "read"
+  Ident<out name> ';'           (.
+                                    statType = StatementType.Read;
+                                    Symbol sym = lookup(openScopes, name);
+                                    if (sym == null) {
+                                      sym = _lookup(externalDeclarations, name);
+                                      isExternal = true;
                                     }
+                                    if (sym == null) {
+                                      SemErr("reference to undefined variable " + name);
+                                    }
+
+                                    if (sym.Item2 != (int)TastierKind.Var) {
+                                      SemErr("variable type expected but " + sym.Item1 + " has kind " + (TastierType)sym.Item2);
+                                    }
+
+                                    if (sym.Item3 != (int)TastierType.Integer) {
+                                      SemErr("integer type expected but " + sym.Item1 + " has type " + (TastierType)sym.Item2);
+                                    }
+                                    program.Add(new Instruction("", "Read"));
+
+                                    genericStore(sym, isExternal);
+                                .)
+
+| "write"
+  Expr<out type>                (.
+                                    statType = StatementType.Write;
+                                    if (type == TastierType.Integer) {
+                                      program.Add(new Instruction("", "Write"));
+                                    } else if (type == TastierType.Char) {
+                                      program.Add(new Instruction("", "WriteChar"));
+                                    } else if (type == TastierType.Pointer) {
+                                      program.Add(new Instruction("", "WriteStr"));
+                                    } else {
+                                      SemErr($"Write expects Integer, got {type}");
+                                    }
+                                .)
+ {
+  ','
+  Expr<out type>                (.
+                                    if (type == TastierType.Integer) {
+                                      program.Add(new Instruction("", "Write"));
+                                    } else if (type == TastierType.Char) {
+                                      program.Add(new Instruction("", "WriteChar"));
+                                    } else if (type == TastierType.Pointer) {
+                                      program.Add(new Instruction("", "WriteStr"));
+                                    } else {
+                                      SemErr($"Write expects Integer, got {type}");
+                                    }
+                                .)
+ }
+ ';'
+.
+/*------------------------------------------------------------------------*/
+Conditional                     (. TastierType type, type1 = TastierType.Undefined; .)
+=
+   "if"
+   Expr<out type>               (.
+                                    checkType(TastierType.Boolean, type);
                                     openLabels.Push(generateLabel());
                                     program.Add(new Instruction("", "FJmp " + openLabels.Peek()));
                                     Instruction startOfElse = new Instruction(openLabels.Pop(), "Nop");
@@ -788,7 +835,7 @@ Stat<out StatementType statType>(.  TastierType type, type1;
   "end"
 | "case"                        (.  openLabels.Push(generateLabel()); .)
   Expr<out type>                (.
-                                    if ((TastierType)type != TastierType.Integer) SemErr($"Case expression expected Integer, got {type}");
+                                    checkType(TastierType.Integer, type);
                                 .)
   {
                                 // copy the value to be compared
@@ -809,16 +856,18 @@ Stat<out StatementType statType>(.  TastierType type, type1;
   "else"                        (.  program.Add(new Instruction("", "Pop")); .)
   StatList
   "end"                         (.  program.Add(new Instruction(openLabels.Pop(), "Nop")); .)
-| "while"                       (.
-                                    statType = StatementType.Loop;
+.
+/*------------------------------------------------------------------------*/
+Loop
+                                (. TastierType type; .)
+=
+  "while"                       (.
                                     string loopStartLabel = generateLabel();
                                     openLabels.Push(generateLabel()); //second label is for the loop end
                                     program.Add(new Instruction(loopStartLabel, "Nop"));
                                 .)
       Expr<out type>            (.
-                                    if ((TastierType)type != TastierType.Boolean) {
-                                      SemErr("boolean type expected");
-                                    }
+                                    checkType(TastierType.Boolean, type);
                                     program.Add(new Instruction("", "FJmp " + openLabels.Peek())); // jump to the loop end label if condition is false
                                 .)
   "do"
@@ -826,7 +875,7 @@ Stat<out StatementType statType>(.  TastierType type, type1;
                                     program.Add(new Instruction(openLabels.Pop(), "Nop")); // put the loop end label here
                                 .)
   "end"
-| "for"                         (.  statType = StatementType.Loop;
+| "for"                         (.
                                     StatementType sttype;
                                 .)
 '('
@@ -853,10 +902,8 @@ Stat<out StatementType statType>(.  TastierType type, type1;
                                 (.
                                     program.Add(new Instruction(loopConditionLabel, "Nop"));
                                 .)
- Expr<out type> ')'(.
-                                    if ((TastierType)type != TastierType.Boolean) {
-                                      SemErr("boolean type expected");
-                                    }
+ Expr<out type> ')'             (.
+                                    checkType(TastierType.Boolean, type);
                                     program.Add(new Instruction("", "FJmp " + openLabels.Peek())); // jump to the loop end label if condition is false
                                 .)
  "do"
@@ -899,73 +946,7 @@ Stat<out StatementType statType>(.  TastierType type, type1;
   "end"
                                 (.
                                 .)
-
-| "read"
-  Ident<out name> ';'           (.
-                                    statType = StatementType.Read;
-                                    sym = lookup(openScopes, name);
-                                    if (sym == null) {
-                                      sym = _lookup(externalDeclarations, name);
-                                      isExternal = true;
-                                    }
-                                    if (sym == null) {
-                                      SemErr("reference to undefined variable " + name);
-                                    }
-
-                                    if (sym.Item2 != (int)TastierKind.Var) {
-                                      SemErr("variable type expected but " + sym.Item1 + " has kind " + (TastierType)sym.Item2);
-                                    }
-
-                                    if (sym.Item3 != (int)TastierType.Integer) {
-                                      SemErr("integer type expected but " + sym.Item1 + " has type " + (TastierType)sym.Item2);
-                                    }
-                                    program.Add(new Instruction("", "Read"));
-
-                                    if (sym.Item4 == 0) {
-                                      if (isExternal) {
-                                        program.Add(new Instruction("", "StoG " + sym.Item1));
-                                        // if the symbol is external, we also store it by name. The linker will resolve the name to an address.
-                                      } else {
-                                        program.Add(new Instruction("", "StoG " + (sym.Item5+3)));
-                                      }
-                                    }
-                                    else {
-                                      int lexicalLevelDifference = Math.Abs(openScopes.Count - sym.Item4)-1;
-                                      program.Add(new Instruction("", "Sto " + lexicalLevelDifference + " " + sym.Item5));
-                                    }
-                                .)
-
-| "write"
-  Expr<out type>                (.
-                                    statType = StatementType.Write;
-                                    if (type == TastierType.Integer) {
-                                      program.Add(new Instruction("", "Write"));
-                                    } else if (type == TastierType.Char) {
-                                      program.Add(new Instruction("", "WriteChar"));
-                                    } else if (type == TastierType.Pointer) {
-                                      program.Add(new Instruction("", "WriteStr"));
-                                    } else {
-                                      SemErr($"Write expects Integer, got {type}");
-                                    }
-                                .)
- {
-  ','
-  Expr<out type>                (.
-                                    if (type == TastierType.Integer) {
-                                      program.Add(new Instruction("", "Write"));
-                                    } else if (type == TastierType.Char) {
-                                      program.Add(new Instruction("", "WriteChar"));
-                                    } else if (type == TastierType.Pointer) {
-                                      program.Add(new Instruction("", "WriteStr"));
-                                    } else {
-                                      SemErr($"Write expects Integer, got {type}");
-                                    }
-                                .)
- }
- ';'
- | "break" ';'                  (.  program.Add(new Instruction("", "Jmp " + openLabels.Peek())); .)
- .
-
+.
 /*------------------------------------------------------------------------*/
  StatList                      (. StatementType statType = StatementType.Other;
                                .)
@@ -1025,10 +1006,8 @@ Term<out TastierType type>      (.  TastierType type1; Instruction inst; .)
 = Factor<out type>
   { MulOp<out inst>
     Factor<out type1>           (.
-                                    if (type != TastierType.Integer ||
-                                        type1 != TastierType.Integer) {
-                                      SemErr("integer type expected");
-                                    }
+                                    checkType(TastierType.Integer, type);
+                                    checkType(TastierType.Integer, type1);
                                     program.Add(inst);
                                 .)
   }.

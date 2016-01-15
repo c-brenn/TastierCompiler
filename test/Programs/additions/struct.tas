@@ -8,7 +8,7 @@ program Struct
   def main
     write 6;
     struct silly_name ooo;
-    ooo := malloc silly_name;
+    ooo := malloc sizeof silly_name;
     ooo.wow := 2;
     write ooo.wow;
     ooo.another := 'c';
