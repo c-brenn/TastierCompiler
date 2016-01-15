@@ -1,9 +1,10 @@
 program Times
+  const int t := 2;
   def main
     int i;
     i := 0;
-    5 times do
-      2 times do
+    loop 5 times do
+      loop t times do
         i := i + 1;
         write i;
       end

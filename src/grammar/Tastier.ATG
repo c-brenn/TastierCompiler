@@ -899,9 +899,8 @@ Loop
                                     program.Add(new Instruction(openLabels.Pop(), "Nop")); // put the loop end label here
                                 .)
  "end"
-| number                        (.
-                                    int n = Convert.ToInt32(t.val);
-                                    program.Add(new Instruction("", "Const " + n));
+| "loop" Expr<out type>                (.
+                                    checkType(TastierType.Integer, (TastierType)type);
                                     Scope currentScope = openScopes.Peek();
                                     Symbol coverSymbol = new Symbol("", 0, 0, openScopes.Count-1, currentScope.Count(s => s.Item2 != (int)TastierKind.Proc), 0, 0);
                                     currentScope.Push(coverSymbol);
